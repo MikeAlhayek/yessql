@@ -123,7 +123,7 @@ namespace YesSql
                 {
                     state.IdentityMap.AddEntity(id, entity);
                     state.Updated.Add(entity);
-                    
+
                     // If this entity needs to be checked for concurrency, track its version
                     if (checkConcurrency || _store.Configuration.ConcurrentTypes.Contains(entity.GetType()))
                     {
@@ -222,7 +222,7 @@ namespace YesSql
         public void Detach(object entity, string collection)
         {
             CheckDisposed();
-            
+
             var state = GetState(collection);
 
             state.Saved.Remove(entity);
@@ -282,7 +282,7 @@ namespace YesSql
 
             if (versionAccessor != null)
             {
-                versionAccessor.Set(entity, (int) doc.Version);
+                versionAccessor.Set(entity, (int)doc.Version);
             }
 
             doc.Content = Store.Configuration.ContentSerializer.Serialize(entity);
@@ -393,7 +393,7 @@ namespace YesSql
 
             var documentTable = Store.Configuration.TableNameConvention.GetDocumentTable(collection);
 
-            var command = "select * from " + _dialect.QuoteForTableName(_tablePrefix + documentTable) + " where " + _dialect.QuoteForColumnName("Id") + " = @Id";
+            var command = "select * from " + _dialect.QuoteForTableName(_tablePrefix + documentTable) + " where " + _dialect.QuoteForColumnName(Store.Configuration.NameConventionOptions.IdColumnName) + " = @Id";
             var key = new WorkerQueryKey(nameof(GetDocumentByIdAsync), new[] { id });
 
             try
@@ -403,7 +403,7 @@ namespace YesSql
                     var logger = state.Store.Configuration.Logger;
 
                     if (logger.IsEnabled(LogLevel.Trace))
-                    { 
+                    {
                         logger.LogTrace(state.Command);
                     }
 
@@ -418,13 +418,13 @@ namespace YesSql
                 await CancelAsync();
 
                 throw;
-            }            
+            }
         }
 
         public void Delete(object obj, string collection = null)
         {
             CheckDisposed();
-            
+
             var state = GetState(collection);
 
             state.Deleted.Add(obj);
@@ -489,7 +489,7 @@ namespace YesSql
 
             var documentTable = Store.Configuration.TableNameConvention.GetDocumentTable(collection);
 
-            var command = "select * from " + _dialect.QuoteForTableName(_tablePrefix + documentTable) + " where " + _dialect.QuoteForColumnName("Id") + " " + _dialect.InOperator("@Ids");
+            var command = "select * from " + _dialect.QuoteForTableName(_tablePrefix + documentTable) + " where " + _dialect.QuoteForColumnName(Store.Configuration.NameConventionOptions.IdColumnName) + " " + _dialect.InOperator("@Ids");
 
             var key = new WorkerQueryKey(nameof(GetAsync), ids);
             try
@@ -609,7 +609,7 @@ namespace YesSql
 
                         _store.CompiledQueries[discriminator] = queryState;
                     }
-                } 
+                }
             }
 
             queryState = queryState.Clone();
@@ -894,7 +894,7 @@ namespace YesSql
                     {
                         _transaction.Commit();
                     }
-                }                
+                }
             }
             finally
             {
@@ -1248,7 +1248,7 @@ namespace YesSql
         {
             _descriptors ??= new Dictionary<string, IEnumerable<IndexDescriptor>>();
 
-            var cacheKey = String.IsNullOrEmpty(collection) 
+            var cacheKey = String.IsNullOrEmpty(collection)
                 ? t.FullName
                 : String.Concat(t.FullName + ":" + collection)
                 ;
@@ -1435,7 +1435,7 @@ namespace YesSql
 
         public IStore Store => _store;
 
-#region Storage implementation
+        #region Storage implementation
 
         private struct IdString
         {
@@ -1444,6 +1444,6 @@ namespace YesSql
             public string Content;
 #pragma warning restore 0649
         }
-#endregion
+        #endregion
     }
 }

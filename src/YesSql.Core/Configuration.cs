@@ -18,12 +18,13 @@ namespace YesSql
             ContentSerializer = new JsonContentSerializer();
             IdGenerator = new DefaultIdGenerator();
             IsolationLevel = IsolationLevel.ReadCommitted;
-            TablePrefix = "";
+            TablePrefix = String.Empty;
             CommandsPageSize = 500;
             QueryGatingEnabled = true;
             Logger = NullLogger.Instance;
             ConcurrentTypes = new HashSet<Type>();
-            TableNameConvention = new DefaultTableNameConvention();
+            NameConventionOptions = new NameConventionOptions();
+            TableNameConvention = new DefaultTableNameConvention(NameConventionOptions);
         }
 
         public IAccessorFactory IdentifierAccessorFactory { get; set; }
@@ -40,5 +41,6 @@ namespace YesSql
         public ITableNameConvention TableNameConvention { get; set; }
         public ICommandInterpreter CommandInterpreter { get; set; }
         public ISqlDialect SqlDialect { get; set; }
+        public NameConventionOptions NameConventionOptions { get; set; }
     }
 }

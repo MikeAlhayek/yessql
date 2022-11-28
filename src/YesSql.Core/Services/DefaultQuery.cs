@@ -109,9 +109,9 @@ namespace YesSql.Services
                 clone._bindings.Add(binding.Key, new List<Type>(binding.Value));
             }
 
-            clone._currentPredicate = (CompositeNode) _predicate.Clone();
+            clone._currentPredicate = (CompositeNode)_predicate.Clone();
             clone._predicate = clone._currentPredicate;
-            
+
             clone._lastParameterName = _lastParameterName;
             clone._parameterBindings = _parameterBindings == null ? null : new List<Action<object, ISqlBuilder>>(_parameterBindings);
 
@@ -124,8 +124,8 @@ namespace YesSql.Services
         internal QueryState _queryState;
         private readonly Session _session;
         private readonly ISqlDialect _dialect;
-        private object _compiledQuery = null;
-        private string _collection;
+        private readonly object _compiledQuery = null;
+        private readonly string _collection;
 
         public static Dictionary<MethodInfo, Action<DefaultQuery, IStringBuilder, ISqlDialect, MethodCallExpression>> MethodMappings =
             new Dictionary<MethodInfo, Action<DefaultQuery, IStringBuilder, ISqlDialect, MethodCallExpression>>();
@@ -222,7 +222,7 @@ namespace YesSql.Services
                     var objects = Expression.Lambda(expression.Arguments[1]).Compile().DynamicInvoke() as IEnumerable;
                     var values = new List<object>();
 
-                    foreach(var o in objects)
+                    foreach (var o in objects)
                     {
                         values.Add(o);
                     }
@@ -234,7 +234,7 @@ namespace YesSql.Services
                     else if (values.Count == 1)
                     {
                         query.ConvertFragment(builder, expression.Arguments[0]);
-                        builder.Append(" = " );
+                        builder.Append(" = ");
                         query.ConvertFragment(builder, Expression.Constant(values[0]));
                     }
                     else
@@ -402,7 +402,7 @@ namespace YesSql.Services
             if (bindingIndex != -1)
             {
                 // When a binding is reused it should be last to be correctly applied to a filter predicate.
-                if (bindingIndex != bindings.Count -1)
+                if (bindingIndex != bindings.Count - 1)
                 {
                     var binding = bindings[bindingIndex];
                     bindings.RemoveAt(bindingIndex);
@@ -421,18 +421,18 @@ namespace YesSql.Services
             if (typeof(MapIndex).IsAssignableFrom(tIndex))
             {
                 // inner join [PersonByName] as [PersonByName_a1] on [PersonByName_a1].[Id] = [Document].[Id] 
-                _queryState._sqlBuilder.InnerJoin(indexTable, indexTableAlias, "DocumentId", _queryState._documentTable, "Id", indexTableAlias);
+                _queryState._sqlBuilder.InnerJoin(indexTable, indexTableAlias, _queryState._store.Configuration.NameConventionOptions.DocumentIdColumnName, _queryState._documentTable, _queryState._store.Configuration.NameConventionOptions.IdColumnName, indexTableAlias);
             }
             else
             {
-                var bridgeName = indexTable + "_" + _queryState._documentTable;
+                var bridgeName = _queryState._store.Configuration.TableNameConvention.GetTableName(indexTable, _queryState._documentTable);
                 var bridgeAlias = _queryState.GetBridgeAlias(tIndex);
 
                 // inner join [ArticlesByDay_Document] as [ArticlesByDay_Document_a1] on [ArticlesByDay_Document].[DocumentId] = [Document].[Id]
-                _queryState._sqlBuilder.InnerJoin(bridgeName, bridgeAlias, "DocumentId", _queryState._documentTable, "Id", bridgeAlias);
+                _queryState._sqlBuilder.InnerJoin(bridgeName, bridgeAlias, _queryState._store.Configuration.NameConventionOptions.DocumentIdColumnName, _queryState._documentTable, _queryState._store.Configuration.NameConventionOptions.IdColumnName, bridgeAlias);
 
                 // inner join [ArticlesByDay] as [ArticlesByDay_a1] on [ArticlesByDay_a1].[Id] = [ArticlesByDay_Document].[ArticlesByDayId]
-                _queryState._sqlBuilder.InnerJoin(indexTable, indexTableAlias, "Id", bridgeName, name + "Id", indexTableAlias, bridgeAlias);
+                _queryState._sqlBuilder.InnerJoin(indexTable, indexTableAlias, _queryState._store.Configuration.NameConventionOptions.IdColumnName, bridgeName, name + _queryState._store.Configuration.NameConventionOptions.IdColumnName, indexTableAlias, bridgeAlias);
             }
         }
 
@@ -461,7 +461,7 @@ namespace YesSql.Services
 
                 _queryState._sqlBuilder.Select();
                 _queryState._sqlBuilder.Table(indexTable);
-                _queryState._sqlBuilder.Selector(typeof(TIndex).Name, "DocumentId");
+                _queryState._sqlBuilder.Selector(typeof(TIndex).Name, _queryState._store.Configuration.NameConventionOptions.DocumentIdColumnName);
             }
 
             var builder = new RentedStringBuilder(Store.SmallBufferSize);
@@ -647,13 +647,13 @@ namespace YesSql.Services
                             _queryState._lastParameterName = "@p" + _queryState._sqlBuilder.Parameters.Count.ToString();
                             _queryState._sqlBuilder.Parameters.Add(_queryState._lastParameterName, _dialect.TryConvert(left.Value));
                             builder.Append(_queryState._lastParameterName);
-                            
+
                             builder.Append(GetBinaryOperator(expression));
 
                             _queryState._lastParameterName = "@p" + _queryState._sqlBuilder.Parameters.Count.ToString();
                             _queryState._sqlBuilder.Parameters.Add(_queryState._lastParameterName, _dialect.TryConvert(right.Value));
                             builder.Append(_queryState._lastParameterName);
-                        
+
                             return;
                         }
 
@@ -722,7 +722,7 @@ namespace YesSql.Services
                         var boundTable = _queryState.GetTypeAlias(bound);
                         builder.Append(_queryState._sqlBuilder.FormatColumn(boundTable, memberExpression.Member.Name, true));
                     }
-                    
+
                     break;
                 case ExpressionType.Constant:
                     _queryState._lastParameterName = "@p" + _queryState._sqlBuilder.Parameters.Count.ToString();
@@ -734,7 +734,7 @@ namespace YesSql.Services
                     var methodCallExpression = (MethodCallExpression)expression;
                     var methodInfo = methodCallExpression.Method;
                     Action<DefaultQuery, IStringBuilder, ISqlDialect, MethodCallExpression> action;
-                    if (MethodMappings.TryGetValue(methodInfo, out action) 
+                    if (MethodMappings.TryGetValue(methodInfo, out action)
                         || MethodMappings.TryGetValue(methodInfo.GetGenericMethodDefinition(), out action))
                     {
                         action(this, builder, _dialect, methodCallExpression);
@@ -992,7 +992,7 @@ namespace YesSql.Services
 
             if (localBuilder.HasJoin)
             {
-                localBuilder.Selector($"count(distinct {_queryState._sqlBuilder.FormatColumn(_queryState._documentTable, "Id")})");
+                localBuilder.Selector($"count(distinct {_queryState._sqlBuilder.FormatColumn(_queryState._documentTable, _queryState._store.Configuration.NameConventionOptions.IdColumnName)})");
             }
             else
             {
@@ -1176,7 +1176,7 @@ namespace YesSql.Services
             async IAsyncEnumerable<T> IQuery<T>.ToAsyncEnumerable()
             {
                 // TODO: [IAsyncEnumerable] Once Dapper supports IAsyncEnumerable we can replace this call by a non-buffered one
-                foreach(var item in await ListImpl())
+                foreach (var item in await ListImpl())
                 {
                     yield return item;
                 }
@@ -1211,7 +1211,7 @@ namespace YesSql.Services
                         // If a page is requested without order add a default one
                         if (!_query._queryState._sqlBuilder.HasOrder && _query._queryState._sqlBuilder.HasPaging)
                         {
-                            _query._queryState._sqlBuilder.OrderBy(_query._queryState._sqlBuilder.FormatColumn(_query._queryState.GetTypeAlias(typeof(T)), "Id", true));
+                            _query._queryState._sqlBuilder.OrderBy(_query._queryState._sqlBuilder.FormatColumn(_query._queryState.GetTypeAlias(typeof(T)), _query._queryState._store.Configuration.NameConventionOptions.IdColumnName, true));
                         }
 
                         var sql = _query._queryState._sqlBuilder.ToSqlString();
@@ -1233,7 +1233,7 @@ namespace YesSql.Services
                         // If a page is requested without order add a default one
                         if (!_query._queryState._sqlBuilder.HasOrder && _query._queryState._sqlBuilder.HasPaging)
                         {
-                            _query._queryState._sqlBuilder.OrderBy(_query._queryState._sqlBuilder.FormatColumn(_query._queryState._documentTable, "Id"));
+                            _query._queryState._sqlBuilder.OrderBy(_query._queryState._sqlBuilder.FormatColumn(_query._queryState._documentTable, _query._queryState._store.Configuration.NameConventionOptions.IdColumnName));
                         }
 
                         _query._queryState._sqlBuilder.Selector(_query._queryState._sqlBuilder.FormatColumn(_query._queryState._documentTable, "*"));
@@ -1267,7 +1267,7 @@ namespace YesSql.Services
             {
                 if (!_query._queryState._sqlBuilder.HasOrder)
                 {
-                    _query._queryState._sqlBuilder.OrderBy(_query._queryState._sqlBuilder.FormatColumn(_query._queryState._documentTable, "Id"));
+                    _query._queryState._sqlBuilder.OrderBy(_query._queryState._sqlBuilder.FormatColumn(_query._queryState._documentTable, _query._queryState._store.Configuration.NameConventionOptions.IdColumnName));
                 }
 
                 _query._queryState._sqlBuilder.Skip(count.ToString());
@@ -1278,7 +1278,7 @@ namespace YesSql.Services
             {
                 if (!_query._queryState._sqlBuilder.HasOrder)
                 {
-                    _query._queryState._sqlBuilder.OrderBy(_query._queryState._sqlBuilder.FormatColumn(_query._queryState._documentTable, "Id"));
+                    _query._queryState._sqlBuilder.OrderBy(_query._queryState._sqlBuilder.FormatColumn(_query._queryState._documentTable, _query._queryState._store.Configuration.NameConventionOptions.IdColumnName));
                 }
 
                 _query._queryState._sqlBuilder.Take(count.ToString());
@@ -1368,7 +1368,7 @@ namespace YesSql.Services
                 }
 
                 return new Query<T>(_query);
-            }            
+            }
 
             IQuery<T, TIndex> IQuery<T>.With<TIndex>()
             {

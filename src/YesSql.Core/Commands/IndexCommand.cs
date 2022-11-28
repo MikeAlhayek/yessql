@@ -47,7 +47,7 @@ namespace YesSql.Commands
             UpdatesList.Clear();
         }
 
-        protected static void GetProperties(DbCommand command, object item, string suffix, ISqlDialect dialect)
+        protected void GetProperties(DbCommand command, object item, string suffix, ISqlDialect dialect)
         {
             var type = item.GetType();
 
@@ -65,7 +65,7 @@ namespace YesSql.Commands
             }
         }
 
-        protected static PropertyInfo[] TypePropertiesCache(Type type)
+        protected PropertyInfo[] TypePropertiesCache(Type type)
         {
             if (TypeProperties.TryGetValue(type.FullName, out var pis))
             {
@@ -115,7 +115,7 @@ namespace YesSql.Commands
                     if (typeof(MapIndex).IsAssignableFrom(type))
                     {
                         // We can set the document id 
-                        sbColumnList.Append(", ").Append(dialect.QuoteForColumnName("DocumentId"));
+                        sbColumnList.Append(", ").Append(dialect.QuoteForColumnName(_store.Configuration.NameConventionOptions.DocumentIdColumnName));
                         sbParameterList.Append(", @DocumentId").Append(ParameterSuffix);
                     }
 
@@ -125,7 +125,7 @@ namespace YesSql.Commands
                 {
                     if (typeof(MapIndex).IsAssignableFrom(type))
                     {
-                        values = $"({dialect.QuoteForColumnName("DocumentId")}) values (@DocumentId{ParameterSuffix})";
+                        values = $"({dialect.QuoteForColumnName(_store.Configuration.NameConventionOptions.DocumentIdColumnName)}) values (@DocumentId{ParameterSuffix})";
                     }
                     else
                     {
@@ -133,10 +133,10 @@ namespace YesSql.Commands
                     }
                 }
 
-                InsertsList[key] = result = $"insert into {dialect.QuoteForTableName(_store.Configuration.TablePrefix + _store.Configuration.TableNameConvention.GetIndexTable(type, Collection))} {values} {dialect.IdentitySelectString} {dialect.QuoteForColumnName("Id")};";
+                InsertsList[key] = result = $"insert into {dialect.QuoteForTableName(_store.Configuration.TablePrefix + _store.Configuration.TableNameConvention.GetIndexTable(type, Collection))} {values} {dialect.IdentitySelectString} {dialect.QuoteForColumnName(_store.Configuration.NameConventionOptions.IdColumnName)};";
             }
 
-            return result;            
+            return result;
         }
 
         protected string Updates(Type type, ISqlDialect dialect)
@@ -158,19 +158,19 @@ namespace YesSql.Commands
                     }
                 }
 
-                UpdatesList[key] = result = $"update {dialect.QuoteForTableName(_store.Configuration.TablePrefix + _store.Configuration.TableNameConvention.GetIndexTable(type, Collection))} set {values} where {dialect.QuoteForColumnName("Id")} = @Id{ParameterSuffix};";
+                UpdatesList[key] = result = $"update {dialect.QuoteForTableName(_store.Configuration.TablePrefix + _store.Configuration.TableNameConvention.GetIndexTable(type, Collection))} set {values} where {dialect.QuoteForColumnName(_store.Configuration.NameConventionOptions.IdColumnName)} = @Id{ParameterSuffix};";
             }
 
             return result;
         }
 
-        private static bool IsWriteable(PropertyInfo pi)
+        private bool IsWriteable(PropertyInfo pi)
         {
             return
                 pi.Name != nameof(IIndex.Id) &&
                 // don't read DocumentId when on a MapIndex as it might be used to 
                 // read the DocumentId directly from an Index query
-                pi.Name != "DocumentId"
+                pi.Name != _store.Configuration.NameConventionOptions.DocumentIdColumnName
                 ;
         }
 

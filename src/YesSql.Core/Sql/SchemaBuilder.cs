@@ -9,8 +9,9 @@ namespace YesSql.Sql
 {
     public class SchemaBuilder : ISchemaBuilder
     {
-        private ICommandInterpreter _commandInterpreter;
+        private readonly ICommandInterpreter _commandInterpreter;
         private readonly ILogger _logger;
+        public NameConventionOptions NameConventionOptions { get; private set; }
 
         public string TablePrefix { get; private set; }
         public ISqlDialect Dialect { get; private set; }
@@ -29,6 +30,7 @@ namespace YesSql.Sql
             TablePrefix = configuration.TablePrefix;
             ThrowOnError = throwOnError;
             TableNameConvention = configuration.TableNameConvention;
+            NameConventionOptions = configuration.NameConventionOptions;
         }
 
         private void Execute(IEnumerable<string> statements)
@@ -50,24 +52,24 @@ namespace YesSql.Sql
             try
             {
                 var indexName = indexType.Name;
-                var indexTable = TableNameConvention.GetIndexTable(indexType, collection); 
+                var indexTable = TableNameConvention.GetIndexTable(indexType, collection);
                 var createTable = new CreateTableCommand(Prefix(indexTable));
                 var documentTable = TableNameConvention.GetDocumentTable(collection);
 
                 // NB: Identity() implies PrimaryKey()
 
                 createTable
-                    .Column<int>("Id", column => column.Identity().NotNull())
-                    .Column<int>("DocumentId")
+                    .Column<int>(NameConventionOptions.IdColumnName, column => column.Identity().NotNull())
+                    .Column<int>(NameConventionOptions.DocumentIdColumnName)
                     ;
 
                 table(createTable);
                 Execute(_commandInterpreter.CreateSql(createTable));
 
-                CreateForeignKey("FK_" + (collection ?? "") + indexName, indexTable, new[] { "DocumentId" }, documentTable, new[] { "Id" });
+                CreateForeignKey("FK_" + (collection ?? String.Empty) + indexName, indexTable, new[] { NameConventionOptions.DocumentIdColumnName }, documentTable, new[] { NameConventionOptions.IdColumnName });
 
                 AlterTable(indexTable, table =>
-                    table.CreateIndex($"IDX_FK_{indexTable}", "DocumentId")
+                    table.CreateIndex($"IDX_FK_{indexTable}", NameConventionOptions.DocumentIdColumnName)
                     );
             }
             catch
@@ -93,24 +95,24 @@ namespace YesSql.Sql
                 // NB: Identity() implies PrimaryKey()
 
                 createTable
-                    .Column<int>("Id", column => column.Identity().NotNull())
+                    .Column<int>(NameConventionOptions.IdColumnName, column => column.Identity().NotNull())
                     ;
 
                 table(createTable);
                 Execute(_commandInterpreter.CreateSql(createTable));
 
-                var bridgeTableName = indexTable + "_" + documentTable;
+                var bridgeTableName = TableNameConvention.GetTableName(indexTable, documentTable);
 
                 CreateTable(bridgeTableName, bridge => bridge
-                    .Column<int>(indexName + "Id", column => column.NotNull())
-                    .Column<int>("DocumentId", column => column.NotNull())
+                    .Column<int>(indexName + NameConventionOptions.IdColumnName, column => column.NotNull())
+                    .Column<int>(NameConventionOptions.DocumentIdColumnName, column => column.NotNull())
                 );
 
-                CreateForeignKey("FK_" + bridgeTableName + "_Id", bridgeTableName, new[] { indexName + "Id" }, indexTable, new[] { "Id" });
-                CreateForeignKey("FK_" + bridgeTableName + "_DocumentId", bridgeTableName, new[] { "DocumentId" }, documentTable, new[] { "Id" });
+                CreateForeignKey("FK_" + bridgeTableName + "_" + NameConventionOptions.IdColumnName, bridgeTableName, new[] { indexName + NameConventionOptions.IdColumnName }, indexTable, new[] { NameConventionOptions.IdColumnName });
+                CreateForeignKey("FK_" + bridgeTableName + "_" + NameConventionOptions.DocumentIdColumnName, bridgeTableName, new[] { NameConventionOptions.DocumentIdColumnName }, documentTable, new[] { NameConventionOptions.IdColumnName });
 
                 AlterTable(bridgeTableName, table =>
-                    table.CreateIndex($"IDX_FK_{bridgeTableName}", indexName + "Id", "DocumentId")
+                    table.CreateIndex($"IDX_FK_{bridgeTableName}", indexName + NameConventionOptions.IdColumnName, NameConventionOptions.DocumentIdColumnName)
                     );
             }
             catch
@@ -131,12 +133,12 @@ namespace YesSql.Sql
                 var indexTable = TableNameConvention.GetIndexTable(indexType, collection);
                 var documentTable = TableNameConvention.GetDocumentTable(collection);
 
-                var bridgeTableName = indexTable + "_" + documentTable;
+                var bridgeTableName = TableNameConvention.GetTableName(indexTable, documentTable);
 
                 if (String.IsNullOrEmpty(Dialect.CascadeConstraintsString))
                 {
-                    DropForeignKey(bridgeTableName, "FK_" + bridgeTableName + "_Id");
-                    DropForeignKey(bridgeTableName, "FK_" + bridgeTableName + "_DocumentId");
+                    DropForeignKey(bridgeTableName, "FK_" + bridgeTableName + "_" + NameConventionOptions.IdColumnName);
+                    DropForeignKey(bridgeTableName, "FK_" + bridgeTableName + "_" + NameConventionOptions.DocumentIdColumnName);
                 }
 
                 DropTable(bridgeTableName);
@@ -162,7 +164,7 @@ namespace YesSql.Sql
 
                 if (String.IsNullOrEmpty(Dialect.CascadeConstraintsString))
                 {
-                    DropForeignKey(indexTable, "FK_" + (collection ?? "") + indexName);
+                    DropForeignKey(indexTable, "FK_" + (collection ?? String.Empty) + indexName);
                 }
 
                 DropTable(indexTable);
@@ -220,7 +222,7 @@ namespace YesSql.Sql
         {
             var indexTable = TableNameConvention.GetIndexTable(indexType, collection);
             AlterTable(indexTable, table);
-            
+
             return this;
         }
 

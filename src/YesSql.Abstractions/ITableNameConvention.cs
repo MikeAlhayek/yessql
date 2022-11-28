@@ -16,5 +16,12 @@ namespace YesSql
         /// Returns the name of an Index table. 
         /// </summary>
         string GetIndexTable(Type indexType, string collection = null);
+
+        /// <summary>
+        /// Combines the given names into a standard table name.
+        /// </summary>
+        /// <param name="names"></param>
+        /// <returns></returns>
+        string GetTableName(params string[] names);
     }
 }

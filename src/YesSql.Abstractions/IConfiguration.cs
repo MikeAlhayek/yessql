@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Data.Common;
 
 namespace YesSql
 {
@@ -70,6 +69,11 @@ namespace YesSql
         /// Gets or sets the <see cref="ITableNameConvention" /> instance.
         /// </summary>
         ITableNameConvention TableNameConvention { get; set; }
+
+        /// <summary>
+        /// Gets or sets the <see cref="NameConventionOptions" /> instance.
+        /// </summary>
+        NameConventionOptions NameConventionOptions { get; set; }
 
         /// <summary>
         /// Gets or sets the <see cref="ICommandInterpreter" /> instance.
