@@ -980,7 +980,7 @@ namespace YesSql.Tests
             Assert.NotEqual(p3, p3a);
 
             // The identity should be valid as we do only reads
-            
+
             var p1b = await session.GetAsync<Person>(p1.Id);
             var p2b = await session.GetAsync<Person>(p2.Id);
             var p3b = await session.GetAsync<Person>(p3.Id);
@@ -3295,7 +3295,8 @@ namespace YesSql.Tests
                 await session.SaveAsync(new Circle { Radius = 5 });
 
                 await session.SaveChangesAsync();
-            };
+            }
+            ;
 
             await using (var session = _store.CreateSession())
             {
@@ -5439,6 +5440,25 @@ namespace YesSql.Tests
         }
 
         [Fact]
+        public virtual async Task ShouldNotThrowConcurrencyWhenFails()
+        {
+            _store.RegisterIndexes<PropertyIndexProvider>();
+
+            await using (var session = _store.CreateSession())
+            {
+                var index = new PropertyIndex { Name = "Home" };
+
+                try
+                {
+                    // Try saving an index directly to force an exception which should trigger cancel.
+                    await session.SaveAsync(index);
+                }
+                catch { }
+
+                await session.FlushAsync();
+            }
+        }
+
         public virtual async Task ShouldHandleConcurrency()
         {
             await using (var session = _store.CreateSession())
