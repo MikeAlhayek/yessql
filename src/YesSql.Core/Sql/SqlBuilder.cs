@@ -97,37 +97,18 @@ namespace YesSql.Sql
                 toTable = _dialect.QuoteForAliasName(toAlias);
             }
 
-            if (type == JoinType.Left)
+            var joinType = type switch
             {
-                JoinSegments.Add(" LEFT JOIN ");
-            }
-            else if (type == JoinType.Right)
-            {
-                JoinSegments.Add(" RIGHT JOIN ");
-            }
-            else
-            {
-                JoinSegments.Add(" INNER JOIN ");
-            }
+                JoinType.Left => " LEFT JOIN ",
+                JoinType.Right => " RIGHT JOIN ",
+                _ => " INNER JOIN ",
+            };
 
-            var segments = JoinSegments;
-
-            segments.Add(FormatTable(table, schema));
-
-            if (!string.IsNullOrEmpty(alias))
-            {
-                segments.Add(" AS ");
-                segments.Add(_dialect.QuoteForAliasName(alias));
-            }
-
-            segments.Add(" ON ");
-            segments.Add(onTable);
-            segments.Add(".");
-            segments.Add(_dialect.QuoteForColumnName(onColumn));
-            segments.Add(" = ");
-            segments.Add(toTable);
-            segments.Add(".");
-            segments.Add(_dialect.QuoteForColumnName(toColumn));
+            // The join is added as a single segment. With C# 13+ on .NET 9+ this call binds to the
+            // string.Concat(params ReadOnlySpan<string>) overload, so no intermediate array is allocated.
+            JoinSegments.Add(string.IsNullOrEmpty(alias)
+                ? string.Concat(joinType, FormatTable(table, schema), " ON ", onTable, ".", _dialect.QuoteForColumnName(onColumn), " = ", toTable, ".", _dialect.QuoteForColumnName(toColumn))
+                : string.Concat(joinType, FormatTable(table, schema), " AS ", _dialect.QuoteForAliasName(alias), " ON ", onTable, ".", _dialect.QuoteForColumnName(onColumn), " = ", toTable, ".", _dialect.QuoteForColumnName(toColumn)));
         }
 
         public void Select()

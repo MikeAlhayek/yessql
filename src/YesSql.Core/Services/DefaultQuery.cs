@@ -595,48 +595,59 @@ namespace YesSql.Services
 
         private ConstantExpression Evaluate(Expression expression, bool convertValue = true)
         {
+            return expression as ConstantExpression ?? Expression.Constant(EvaluateValue(expression, convertValue));
+        }
+
+        /// <summary>
+        /// Evaluates an expression that is not based on a lambda parameter, and returns its value.
+        /// </summary>
+        /// <remarks>
+        /// The value is returned directly instead of being wrapped in a <see cref="ConstantExpression"/>. The parameter bindings
+        /// of compiled queries are recorded in <see cref="AddParameterBinding"/> so that no closure is allocated when a query
+        /// is not being compiled (closures are allocated when their scope is entered, not when the lambda is created).
+        /// </remarks>
+        private object EvaluateValue(Expression expression, bool convertValue = true)
+        {
             switch (expression.NodeType)
             {
                 case ExpressionType.Constant:
-                    return (ConstantExpression)expression;
+                    return ((ConstantExpression)expression).Value;
 
                 case ExpressionType.Convert:
-                    return Evaluate(((UnaryExpression)expression).Operand);
+                    return EvaluateValue(((UnaryExpression)expression).Operand);
 
                 case ExpressionType.New:
                     var newExpression = (NewExpression)expression;
-                    var arguments = newExpression.Arguments.Select(a => Evaluate(a).Value).ToArray();
-                    var value = newExpression.Constructor.Invoke(arguments);
-                    return Expression.Constant(value);
+                    return newExpression.Constructor.Invoke(EvaluateArguments(newExpression.Arguments));
 
                 case ExpressionType.Call:
                     var methodExpression = (MethodCallExpression)expression;
-                    arguments = methodExpression.Arguments.Select(a => Evaluate(a).Value).ToArray();
+                    var arguments = EvaluateArguments(methodExpression.Arguments);
                     object obj = null;
 
                     // Static method?
                     if (methodExpression.Object != null)
                     {
-                        obj = Evaluate(methodExpression.Object).Value;
+                        obj = EvaluateValue(methodExpression.Object);
                     }
 
-                    return Expression.Constant(methodExpression.Method.Invoke(obj, arguments));
+                    return methodExpression.Method.Invoke(obj, arguments);
 
                 case ExpressionType.MemberAccess:
                     var memberExpression = (MemberExpression)expression;
 
-                    if (memberExpression.Member.MemberType == MemberTypes.Field)
+                    if (memberExpression.Member.MemberType == MemberTypes.Field || memberExpression.Member.MemberType == MemberTypes.Property)
                     {
-                        // Evaluate the containing object of the Field
+                        // Evaluate the containing object of the member
                         // i.e. if the expression is "x.Field", then x is evaluated
                         // Don't convert the intermediate expressions, only the final result
                         if (memberExpression.Expression != null)
                         {
-                            obj = Evaluate(memberExpression.Expression, false).Value;
+                            obj = EvaluateValue(memberExpression.Expression, false);
 
                             if (obj == null)
                             {
-                                return Expression.Constant(null);
+                                return null;
                             }
                         }
                         else
@@ -647,63 +658,14 @@ namespace YesSql.Services
 
                         if (_queryState._trackParameterBindings)
                         {
-                            _queryState._parameterBindings ??= new List<Action<object, ISqlBuilder>>();
-
-                            // Create a delegate that will be invoked every time a compiled query is reused,
-                            // which will re-evaluate the current node, for the current parameter.
-                            var _parameterName = GetParameterName(_queryState._sqlBuilder.Parameters.Count);
-
-                            _queryState._parameterBindings.Add((o, sqlBuilder) =>
-                            {
-                                var localValue = ((FieldInfo)memberExpression.Member).GetValue(o);
-
-                                sqlBuilder.Parameters[_parameterName] = convertValue ? _dialect.TryConvert(localValue) : localValue;
-                            });
+                            AddParameterBinding(memberExpression.Member, convertValue);
                         }
 
-                        value = ((FieldInfo)memberExpression.Member).GetValue(obj);
+                        var value = memberExpression.Member is FieldInfo field
+                            ? field.GetValue(obj)
+                            : ((PropertyInfo)memberExpression.Member).GetValue(obj);
 
-                        return Expression.Constant(convertValue ? _dialect.TryConvert(value) : value);
-                    }
-                    else if (memberExpression.Member.MemberType == MemberTypes.Property)
-                    {
-                        // Evaluate the containing object of the property
-                        // i.e. if the expression is "x.Property", then x is evaluated
-                        // Don't convert the intermediate expressions, only the final result
-                        if (memberExpression.Expression != null)
-                        {
-                            obj = Evaluate(memberExpression.Expression, false).Value;
-
-                            if (obj == null)
-                            {
-                                return Expression.Constant(null);
-                            }
-                        }
-                        else
-                        {
-                            // Static members
-                            obj = null;
-                        }
-
-                        if (_queryState._trackParameterBindings)
-                        {
-                            _queryState._parameterBindings ??= new List<Action<object, ISqlBuilder>>();
-
-                            // Create a delegate that will be invoked every time a compiled query is reused,
-                            // which will re-evaluate the current node, for the current parameter.
-                            var _parameterName = GetParameterName(_queryState._sqlBuilder.Parameters.Count);
-
-                            _queryState._parameterBindings.Add((o, sqlBuilder) =>
-                            {
-                                var localValue = ((PropertyInfo)memberExpression.Member).GetValue(o);
-
-                                sqlBuilder.Parameters[_parameterName] = convertValue ? _dialect.TryConvert(localValue) : localValue;
-                            });
-                        }
-
-                        value = ((PropertyInfo)memberExpression.Member).GetValue(obj);
-
-                        return Expression.Constant(convertValue ? _dialect.TryConvert(value) : value);
+                        return convertValue ? _dialect.TryConvert(value) : value;
                     }
                     break;
             }
@@ -711,7 +673,45 @@ namespace YesSql.Services
             // TODO: Detect the code paths that can reach this point, but testing various expression or
             // logging, then enhance this method to take the case into account. This is critical
             // to not have to compile as the performance difference is 100x.
-            return Expression.Constant(Expression.Lambda(expression).Compile().DynamicInvoke());
+            return Expression.Lambda(expression).Compile().DynamicInvoke();
+        }
+
+        private object[] EvaluateArguments(System.Collections.ObjectModel.ReadOnlyCollection<Expression> expressions)
+        {
+            if (expressions.Count == 0)
+            {
+                return [];
+            }
+
+            var values = new object[expressions.Count];
+
+            for (var i = 0; i < values.Length; i++)
+            {
+                values[i] = EvaluateValue(expressions[i]);
+            }
+
+            return values;
+        }
+
+        /// <summary>
+        /// Records a delegate that will be invoked every time a compiled query is reused,
+        /// which will re-evaluate the member, for the current parameter.
+        /// </summary>
+        private void AddParameterBinding(MemberInfo member, bool convertValue)
+        {
+            _queryState._parameterBindings ??= [];
+
+            var parameterName = GetParameterName(_queryState._sqlBuilder.Parameters.Count);
+            var dialect = _dialect;
+
+            _queryState._parameterBindings.Add((o, sqlBuilder) =>
+            {
+                var localValue = member is FieldInfo field
+                    ? field.GetValue(o)
+                    : ((PropertyInfo)member).GetValue(o);
+
+                sqlBuilder.Parameters[parameterName] = convertValue ? dialect.TryConvert(localValue) : localValue;
+            });
         }
 
         private static string GetBinaryOperator(Expression expression)
@@ -806,7 +806,9 @@ namespace YesSql.Services
                         break;
                 }
 
-                expression = Evaluate(expression);
+                // The expression is reduced to its value, which is added as a parameter
+                AddParameter(builder, EvaluateValue(expression));
+                return;
             }
 
             switch (expression.NodeType)
@@ -1067,7 +1069,7 @@ namespace YesSql.Services
                     case ExpressionType.Constant:
                         return (e as ConstantExpression).Value == null;
                     case ExpressionType.MemberAccess:
-                        return !IsParameterBased(e) && Evaluate(e).Value == null;
+                        return !IsParameterBased(e) && EvaluateValue(e) == null;
                 }
 
                 return false;
