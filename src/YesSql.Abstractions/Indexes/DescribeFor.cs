@@ -158,6 +158,8 @@ namespace YesSql.Indexes
     public class IndexDescriptor<T, TIndex, TKey> : IDescribeFor, IMapFor<T, TIndex>, IGroupFor<TIndex>, IReduceFor<TIndex, TKey>, IDeleteFor<TIndex> where TIndex : IIndex
     {
         private Func<T, CancellationToken, Task<IEnumerable<TIndex>>> _map;
+        // The map function when it is synchronous, so that its result doesn't need to be wrapped in a task.
+        private Func<T, IEnumerable<TIndex>> _syncMap;
         private Func<IGrouping<TKey, TIndex>, TIndex> _reduce;
         private Func<TIndex, IEnumerable<TIndex>, TIndex> _delete;
         private IDescribeFor _reduceDescribeFor;
@@ -176,6 +178,7 @@ namespace YesSql.Indexes
         public IGroupFor<TIndex> Map(Func<T, IEnumerable<TIndex>> map)
         {
             _map = (x, token) => Task.FromResult(map(x));
+            _syncMap = map;
             return this;
         }
 
@@ -190,6 +193,7 @@ namespace YesSql.Indexes
         public IGroupFor<TIndex> Map(Func<T, TIndex> map)
         {
             _map = (x, token) => Task.FromResult((IEnumerable<TIndex>)new[] { map(x) });
+            _syncMap = x => new[] { map(x) };
             return this;
         }
 
@@ -197,6 +201,7 @@ namespace YesSql.Indexes
         public IGroupFor<TIndex> Map(Func<T, Task<IEnumerable<TIndex>>> map)
         {
             _map = async (x,token) => await map(x);
+            _syncMap = null;
             return this;
         }
 
@@ -204,6 +209,7 @@ namespace YesSql.Indexes
         public IGroupFor<TIndex> Map(Func<T, CancellationToken, Task<IEnumerable<TIndex>>> map)
         {
             _map = map;
+            _syncMap = null;
             return this;
         }
 
@@ -211,6 +217,7 @@ namespace YesSql.Indexes
         public IGroupFor<TIndex> Map(Func<T,  Task<TIndex>> map)
         {
             _map = async (x, token) => new[] { await map(x) };
+            _syncMap = null;
             return this;
         }
 
@@ -218,6 +225,7 @@ namespace YesSql.Indexes
         public IGroupFor<TIndex> Map(Func<T, CancellationToken, Task<TIndex>> map)
         {
             _map = async (x, token) => new[] { await map(x, token) };
+            _syncMap = null;
             return this;
         }
 
@@ -254,6 +262,12 @@ namespace YesSql.Indexes
 
         Func<object, CancellationToken, Task<IEnumerable<IIndex>>> IDescribeFor.GetMap()
         {
+            if (_syncMap != null)
+            {
+                var syncMap = _syncMap;
+                return (x, token) => Task.FromResult(AsIndexes(syncMap((T)x)));
+            }
+
             return (x, token) =>
             {
                 var task = _map((T)x, token);
