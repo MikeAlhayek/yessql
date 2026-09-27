@@ -4,6 +4,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,6 +13,7 @@ namespace YesSql.Commands
     public sealed class DeleteMapIndexCommand : IIndexCommand, ICollectionName
     {
         private static readonly ConcurrentDictionary<CommandKey, string> DeleteCommands = new();
+        private static readonly ConcurrentDictionary<CommandKey, string> BatchDeleteCommandPrefixes = new();
 
         private readonly IStore _store;
         public long DocumentId { get; }
@@ -46,6 +48,7 @@ namespace YesSql.Commands
         public static void ResetQueryCache()
         {
             DeleteCommands.Clear();
+            BatchDeleteCommandPrefixes.Clear();
         }
 
         private string GetDeleteCommandText(ISqlDialect dialect)
@@ -62,11 +65,18 @@ namespace YesSql.Commands
 
         public bool AddToBatch(ISqlDialect dialect, List<string> queries, DbCommand command, List<Action<DbDataReader>> actions, int index)
         {
-            var sql = $"delete from {dialect.QuoteForTableName(_store.Configuration.TablePrefix + _store.Configuration.TableNameConvention.GetIndexTable(IndexType, Collection), _store.Configuration.Schema)} where {dialect.QuoteForColumnName("DocumentId")} = @Id_{index};";
+            var key = new CommandKey(dialect.Name, IndexType, _store.Configuration.Schema, _store.Configuration.TablePrefix, Collection);
 
-            queries.Add(sql);
+            if (!BatchDeleteCommandPrefixes.TryGetValue(key, out var prefix))
+            {
+                BatchDeleteCommandPrefixes[key] = prefix = $"delete from {dialect.QuoteForTableName(_store.Configuration.TablePrefix + _store.Configuration.TableNameConvention.GetIndexTable(IndexType, Collection), _store.Configuration.Schema)} where {dialect.QuoteForColumnName("DocumentId")} = @Id_";
+            }
 
-            command.AddParameter($"Id_{index}", DocumentId);
+            var suffix = index.ToString(CultureInfo.InvariantCulture);
+
+            queries.Add(string.Concat(prefix, suffix, ";"));
+
+            command.AddParameter("Id_" + suffix, DocumentId);
 
             return true;
         }

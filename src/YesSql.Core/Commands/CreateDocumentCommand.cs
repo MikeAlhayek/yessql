@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -33,16 +34,15 @@ namespace YesSql.Commands
 
         public override bool AddToBatch(ISqlDialect dialect, List<string> queries, DbCommand batchCommand, List<Action<DbDataReader>> actions, int index)
         {
-            var documentTable = _store.Configuration.TableNameConvention.GetDocumentTable(Collection);
-            var insertCmd = $"insert into {dialect.QuoteForTableName(_store.Configuration.TablePrefix + documentTable, _store.Configuration.Schema)} ({dialect.QuoteForColumnName("Id")}, {dialect.QuoteForColumnName("Type")}, {dialect.QuoteForColumnName("Content")}, {dialect.QuoteForColumnName("Version")}) values (@Id_{index}, @Type_{index}, @Content_{index}, @Version_{index});";
+            var suffix = index.ToString(CultureInfo.InvariantCulture);
 
-            queries.Add(insertCmd);
+            queries.Add(GetBatchInsertCommandText(dialect, _store, Collection, suffix));
 
             batchCommand
-                .AddParameter("Id_" + index, Document.Id)
-                .AddParameter("Type_" + index, Document.Type)
-                .AddParameter("Content_" + index, Document.Content)
-                .AddParameter("Version_" + index, Document.Version);
+                .AddParameter("Id_" + suffix, Document.Id)
+                .AddParameter("Type_" + suffix, Document.Type)
+                .AddParameter("Content_" + suffix, Document.Content)
+                .AddParameter("Version_" + suffix, Document.Version);
 
             return true;
         }

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -57,19 +58,14 @@ namespace YesSql.Commands
                 return false;
             }
 
-            var documentTable = _store.Configuration.TableNameConvention.GetDocumentTable(Collection);
+            var suffix = index.ToString(CultureInfo.InvariantCulture);
 
-            var updateCmd = $"update {dialect.QuoteForTableName(_store.Configuration.TablePrefix + documentTable, _store.Configuration.Schema)} "
-                + $"set {dialect.QuoteForColumnName("Content")} = @Content_{index}, {dialect.QuoteForColumnName("Version")} = @Version_{index} where "
-                + $"{dialect.QuoteForColumnName("Id")} = @Id_{index};"
-                ;
-
-            queries.Add(updateCmd);
+            queries.Add(GetBatchUpdateCommandText(dialect, _store, Collection, suffix));
 
             batchCommand
-                .AddParameter("Id_" + index, Document.Id)
-                .AddParameter("Content_" + index, Document.Content)
-                .AddParameter("Version_" + index, Document.Version);
+                .AddParameter("Id_" + suffix, Document.Id)
+                .AddParameter("Content_" + suffix, Document.Content)
+                .AddParameter("Version_" + suffix, Document.Version);
 
             return true;
         }

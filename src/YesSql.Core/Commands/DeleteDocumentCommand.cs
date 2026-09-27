@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -32,11 +33,10 @@ namespace YesSql.Commands
 
         public override bool AddToBatch(ISqlDialect dialect, List<string> queries, DbCommand command, List<Action<DbDataReader>> actions, int index)
         {
-            var documentTable = _store.Configuration.TableNameConvention.GetDocumentTable(Collection);
+            var suffix = index.ToString(CultureInfo.InvariantCulture);
 
-            var deleteCmd = $"delete from {dialect.QuoteForTableName(_store.Configuration.TablePrefix + documentTable, _store.Configuration.Schema)} where {dialect.QuoteForColumnName("Id")} = @Id_{index};";
-            queries.Add(deleteCmd);
-            command.AddParameter($"Id_{index}", Document.Id);
+            queries.Add(GetBatchDeleteCommandText(dialect, _store, Collection, suffix));
+            command.AddParameter("Id_" + suffix, Document.Id);
 
             return true;
         }

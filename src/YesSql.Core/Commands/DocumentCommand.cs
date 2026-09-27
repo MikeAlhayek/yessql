@@ -25,6 +25,9 @@ namespace YesSql.Commands
         private static readonly ConcurrentDictionary<DocumentCommandKey, string> UpdateCommands = new();
         private static readonly ConcurrentDictionary<DocumentCommandKey, string> UnversionedUpdateCommands = new();
         private static readonly ConcurrentDictionary<DocumentCommandKey, string> DeleteCommands = new();
+        private static readonly ConcurrentDictionary<DocumentCommandKey, BatchParts> BatchInsertParts = new();
+        private static readonly ConcurrentDictionary<DocumentCommandKey, BatchParts> BatchUpdateParts = new();
+        private static readonly ConcurrentDictionary<DocumentCommandKey, BatchParts> BatchDeleteParts = new();
 
         public abstract int ExecutionOrder { get; }
 
@@ -51,6 +54,9 @@ namespace YesSql.Commands
             UpdateCommands.Clear();
             UnversionedUpdateCommands.Clear();
             DeleteCommands.Clear();
+            BatchInsertParts.Clear();
+            BatchUpdateParts.Clear();
+            BatchDeleteParts.Clear();
         }
 
         /// <summary>
@@ -121,6 +127,76 @@ namespace YesSql.Commands
 
             return result;
         }
+
+        /// <summary>
+        /// Returns the batched <c>insert</c> statement of a document, for the parameters with the specified suffix.
+        /// </summary>
+        protected static string GetBatchInsertCommandText(ISqlDialect dialect, IStore store, string collection, string suffix)
+        {
+            var key = new DocumentCommandKey(dialect.Name, store.Configuration.Schema, store.Configuration.TablePrefix, collection);
+
+            if (!BatchInsertParts.TryGetValue(key, out var parts))
+            {
+                var documentTable = store.Configuration.TableNameConvention.GetDocumentTable(collection);
+
+                BatchInsertParts[key] = parts = new BatchParts(
+                    $"insert into {dialect.QuoteForTableName(store.Configuration.TablePrefix + documentTable, store.Configuration.Schema)} ({dialect.QuoteForColumnName("Id")}, {dialect.QuoteForColumnName("Type")}, {dialect.QuoteForColumnName("Content")}, {dialect.QuoteForColumnName("Version")}) values (@Id_",
+                    ", @Type_",
+                    ", @Content_",
+                    ", @Version_",
+                    ");");
+            }
+
+            // A single string is allocated per statement. With C# 13+ on .NET 9+ this call binds to the
+            // string.Concat(params ReadOnlySpan<string>) overload, so no intermediate array is allocated.
+            return string.Concat(parts.P0, suffix, parts.P1, suffix, parts.P2, suffix, parts.P3, suffix, parts.P4);
+        }
+
+        /// <summary>
+        /// Returns the batched <c>update</c> statement of a document (without version check), for the parameters with the specified suffix.
+        /// </summary>
+        protected static string GetBatchUpdateCommandText(ISqlDialect dialect, IStore store, string collection, string suffix)
+        {
+            var key = new DocumentCommandKey(dialect.Name, store.Configuration.Schema, store.Configuration.TablePrefix, collection);
+
+            if (!BatchUpdateParts.TryGetValue(key, out var parts))
+            {
+                var documentTable = store.Configuration.TableNameConvention.GetDocumentTable(collection);
+
+                BatchUpdateParts[key] = parts = new BatchParts(
+                    $"update {dialect.QuoteForTableName(store.Configuration.TablePrefix + documentTable, store.Configuration.Schema)} set {dialect.QuoteForColumnName("Content")} = @Content_",
+                    $", {dialect.QuoteForColumnName("Version")} = @Version_",
+                    $" where {dialect.QuoteForColumnName("Id")} = @Id_",
+                    ";",
+                    null);
+            }
+
+            return string.Concat(parts.P0, suffix, parts.P1, suffix, parts.P2, suffix, parts.P3);
+        }
+
+        /// <summary>
+        /// Returns the batched <c>delete</c> statement of a document, for the parameters with the specified suffix.
+        /// </summary>
+        protected static string GetBatchDeleteCommandText(ISqlDialect dialect, IStore store, string collection, string suffix)
+        {
+            var key = new DocumentCommandKey(dialect.Name, store.Configuration.Schema, store.Configuration.TablePrefix, collection);
+
+            if (!BatchDeleteParts.TryGetValue(key, out var parts))
+            {
+                var documentTable = store.Configuration.TableNameConvention.GetDocumentTable(collection);
+
+                BatchDeleteParts[key] = parts = new BatchParts(
+                    $"delete from {dialect.QuoteForTableName(store.Configuration.TablePrefix + documentTable, store.Configuration.Schema)} where {dialect.QuoteForColumnName("Id")} = @Id_",
+                    ";",
+                    null,
+                    null,
+                    null);
+            }
+
+            return string.Concat(parts.P0, suffix, parts.P1);
+        }
+
+        private sealed record BatchParts(string P0, string P1, string P2, string P3, string P4);
 
         private readonly record struct DocumentCommandKey(string Dialect, string Schema, string Prefix, string Collection);
     }
