@@ -840,9 +840,26 @@ namespace YesSql
 
                 if (_commands != null)
                 {
-                    foreach (var command in _commands)
+                    // Commands executing the same statement reuse the same DbCommand during the flush
+                    var commandCache = new CommandCache(_connection, _transaction);
+
+                    try
                     {
-                        await command.ExecuteAsync(_connection, _transaction, _dialect, _logger, cancellationToken);
+                        foreach (var command in _commands)
+                        {
+                            if (command is IReusableCommand reusableCommand)
+                            {
+                                await reusableCommand.ExecuteAsync(_connection, _transaction, _dialect, _logger, commandCache, cancellationToken);
+                            }
+                            else
+                            {
+                                await command.ExecuteAsync(_connection, _transaction, _dialect, _logger, cancellationToken);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        await commandCache.DisposeAsync();
                     }
                 }
             }

@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace YesSql.Commands
 {
-    public sealed class DeleteDocumentCommand : DocumentCommand
+    public sealed class DeleteDocumentCommand : DocumentCommand, IReusableCommand
     {
         private readonly IStore _store;
         public override int ExecutionOrder { get; } = 4;
@@ -29,6 +29,27 @@ namespace YesSql.Commands
             }
             
             return connection.ExecuteAsync(new CommandDefinition(deleteCmd, Document, transaction, null, null, CommandFlags.Buffered, cancellationToken));
+        }
+
+        Task IReusableCommand.ExecuteAsync(DbConnection connection, DbTransaction transaction, ISqlDialect dialect, ILogger logger, CommandCache cache, CancellationToken cancellationToken)
+        {
+            var deleteCmd = GetDeleteCommandText(dialect, _store, Collection);
+
+            if (logger.IsEnabled(LogLevel.Trace))
+            {
+                logger.LogTrace(deleteCmd);
+            }
+
+            var command = cache.GetCommand(deleteCmd, out var created);
+
+            if (created)
+            {
+                CommandCache.AddParameters(command, "Id");
+            }
+
+            CommandCache.SetValue(command.Parameters[0], Document.Id);
+
+            return command.ExecuteNonQueryAsync(cancellationToken);
         }
 
         public override bool AddToBatch(ISqlDialect dialect, List<string> queries, DbCommand command, List<Action<DbDataReader>> actions, int index)

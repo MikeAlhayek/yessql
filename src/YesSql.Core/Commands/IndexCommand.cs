@@ -54,7 +54,7 @@ namespace YesSql.Commands
 
         protected static void GetProperties(DbCommand command, object item, string suffix, ISqlDialect dialect)
         {
-            var accessors = TypeAccessors.GetOrAdd(item.GetType(), static type => TypePropertiesCache(type).Select(p => (p, new PropertyInfoAccessor(p))).ToArray());
+            var accessors = GetAccessors(item.GetType());
 
             foreach (var (property, accessor) in accessors)
             {
@@ -67,6 +67,23 @@ namespace YesSql.Commands
                 command.Parameters.Add(parameter);
             }
         }
+
+        /// <summary>
+        /// Updates the values of the parameters added by <see cref="GetProperties"/> for another index of the same type.
+        /// </summary>
+        internal static void SetProperties(DbCommand command, object item, ISqlDialect dialect)
+        {
+            var accessors = GetAccessors(item.GetType());
+            var parameters = command.Parameters;
+
+            for (var i = 0; i < accessors.Length; i++)
+            {
+                parameters[i].Value = dialect.TryConvert(accessors[i].Accessor.Get(item)) ?? DBNull.Value;
+            }
+        }
+
+        private static (PropertyInfo Property, PropertyInfoAccessor Accessor)[] GetAccessors(Type type)
+            => TypeAccessors.GetOrAdd(type, static type => TypePropertiesCache(type).Select(p => (p, new PropertyInfoAccessor(p))).ToArray());
 
         protected static PropertyInfo[] TypePropertiesCache(Type type)
         {

@@ -10,7 +10,7 @@ using YesSql.Indexes;
 
 namespace YesSql.Commands
 {
-    public sealed class CreateIndexCommand : IndexCommand
+    public sealed class CreateIndexCommand : IndexCommand, IReusableCommand
     {
         private readonly long[] _addedDocumentIds;
 
@@ -61,6 +61,39 @@ namespace YesSql.Commands
 
                 await connection.ExecuteAsync(new CommandDefinition(bridgeSql, _addedDocumentIds.Select(x => new { DocumentId = x, Id = Index.Id }), transaction, null, null, CommandFlags.Buffered, cancellationToken));
             }
+        }
+
+        async Task IReusableCommand.ExecuteAsync(DbConnection connection, DbTransaction transaction, ISqlDialect dialect, ILogger logger, CommandCache cache, CancellationToken cancellationToken)
+        {
+            // Reduce indexes also insert their links to the documents
+            if (Index is not MapIndex)
+            {
+                await ExecuteAsync(connection, transaction, dialect, logger, cancellationToken);
+                return;
+            }
+
+            var sql = InsertsForExecute(Index.GetType(), dialect);
+
+            if (logger.IsEnabled(LogLevel.Trace))
+            {
+                logger.LogTrace(sql);
+            }
+
+            var command = cache.GetCommand(sql, out var created);
+            var documentId = Index.GetAddedDocuments().Single().Id;
+
+            if (created)
+            {
+                GetProperties(command, Index, "", dialect);
+                command.AddParameter("DocumentId", documentId);
+            }
+            else
+            {
+                SetProperties(command, Index, dialect);
+                command.Parameters[command.Parameters.Count - 1].Value = documentId;
+            }
+
+            Index.Id = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
         }
 
         public override bool AddToBatch(ISqlDialect dialect, List<string> queries, DbCommand batchCommand, List<Action<DbDataReader>> actions, int index)

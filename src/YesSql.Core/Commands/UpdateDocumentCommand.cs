@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace YesSql.Commands
 {
-    public sealed class UpdateDocumentCommand : DocumentCommand
+    public sealed class UpdateDocumentCommand : DocumentCommand, IReusableCommand
     {
         private readonly IStore _store;
         private readonly long _checkVersion;
@@ -44,6 +44,36 @@ namespace YesSql.Commands
             }
 
             return;
+        }
+
+        Task IReusableCommand.ExecuteAsync(DbConnection connection, DbTransaction transaction, ISqlDialect dialect, ILogger logger, CommandCache cache, CancellationToken cancellationToken)
+        {
+            // The statement of a checked update contains the expected version, so it is not reused
+            if (_checkVersion > -1)
+            {
+                return ExecuteAsync(connection, transaction, dialect, logger, cancellationToken);
+            }
+
+            var updateCmd = GetUnversionedUpdateCommandText(dialect, _store, Collection);
+
+            if (logger.IsEnabled(LogLevel.Trace))
+            {
+                logger.LogTrace(updateCmd);
+            }
+
+            var command = cache.GetCommand(updateCmd, out var created);
+
+            if (created)
+            {
+                CommandCache.AddParameters(command, "Id", "Content", "Version");
+            }
+
+            var parameters = command.Parameters;
+            CommandCache.SetValue(parameters[0], Document.Id);
+            CommandCache.SetValue(parameters[1], Document.Content);
+            CommandCache.SetValue(parameters[2], Document.Version);
+
+            return command.ExecuteNonQueryAsync(cancellationToken);
         }
 
         public override bool AddToBatch(ISqlDialect dialect, List<string> queries, DbCommand batchCommand, List<Action<DbDataReader>> actions, int index)

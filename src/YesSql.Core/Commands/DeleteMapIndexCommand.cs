@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace YesSql.Commands
 {
-    public sealed class DeleteMapIndexCommand : IIndexCommand, ICollectionName
+    public sealed class DeleteMapIndexCommand : IIndexCommand, ICollectionName, IReusableCommand
     {
         private static readonly ConcurrentDictionary<CommandKey, string> DeleteCommands = new();
         private static readonly ConcurrentDictionary<CommandKey, string> BatchDeleteCommandPrefixes = new();
@@ -40,6 +40,27 @@ namespace YesSql.Commands
             }
 
             return connection.ExecuteAsync(new CommandDefinition(command, new { Id = DocumentId }, transaction, null, null, CommandFlags.Buffered, cancellationToken));
+        }
+
+        Task IReusableCommand.ExecuteAsync(DbConnection connection, DbTransaction transaction, ISqlDialect dialect, ILogger logger, CommandCache cache, CancellationToken cancellationToken)
+        {
+            var sql = GetDeleteCommandText(dialect);
+
+            if (logger.IsEnabled(LogLevel.Trace))
+            {
+                logger.LogTrace(sql);
+            }
+
+            var command = cache.GetCommand(sql, out var created);
+
+            if (created)
+            {
+                CommandCache.AddParameters(command, "Id");
+            }
+
+            CommandCache.SetValue(command.Parameters[0], DocumentId);
+
+            return command.ExecuteNonQueryAsync(cancellationToken);
         }
 
         /// <summary>
