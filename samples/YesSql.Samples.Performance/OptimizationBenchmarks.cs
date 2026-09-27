@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -8,8 +9,10 @@ using BenchmarkDotNet.Engines;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
 using YesSql.Indexes;
+using YesSql.Provider.MySql;
 using YesSql.Provider.PostgreSql;
 using YesSql.Provider.Sqlite;
+using YesSql.Provider.SqlServer;
 using YesSql.Services;
 using YesSql.Sql;
 
@@ -21,6 +24,10 @@ namespace YesSql.Samples.Performance
     /// </summary>
     /// <remarks>
     /// SQLite uses a shared in-memory database so that disk I/O doesn't hide the cost of the library itself.
+    /// The providers are SQLite and PostgreSQL by default, and can be set with the YESSQL_BENCHMARK_PROVIDERS environment
+    /// variable (e.g. "Sqlite,PostgreSql,MySql,SqlServer"). MySQL and SQL Server expect servers on their default local ports:
+    /// docker run -d -e MYSQL_ROOT_PASSWORD=Password12! -e MYSQL_DATABASE=yessql -p 3306:3306 mysql:8
+    /// docker run -d -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD=Password12! -p 1433:1433 mcr.microsoft.com/mssql/server:2019-latest
     /// The PostgreSQL benchmarks expect a server on localhost:5432 (user 'root', password 'Password12!', database 'yessql'),
     /// for instance: docker run -d -e POSTGRES_USER=root -e POSTGRES_PASSWORD=Password12! -e POSTGRES_DB=yessql -p 5432:5432 postgres:16 -c synchronous_commit=off
     /// </remarks>
@@ -46,6 +53,8 @@ namespace YesSql.Samples.Performance
         }
 
         private const string PostgreSqlConnectionString = "Server=localhost;Port=5432;Database=yessql;User Id=root;Password=Password12!;";
+        private const string MySqlConnectionString = "Server=localhost;Port=3306;Database=yessql;Uid=root;Pwd=Password12!;";
+        private const string SqlServerConnectionString = "Server=localhost,1433;Database=master;User Id=sa;Password=Password12!;TrustServerCertificate=True;";
         private const int BatchSize = 128;
 
         private readonly Consumer _consumer = new();
@@ -56,8 +65,12 @@ namespace YesSql.Samples.Performance
         private string[] _names;
         private int _counter;
 
-        [Params("Sqlite", "PostgreSql")]
+        [ParamsSource(nameof(Providers))]
         public string Provider { get; set; }
+
+        public static IEnumerable<string> Providers =>
+            Environment.GetEnvironmentVariable("YESSQL_BENCHMARK_PROVIDERS")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            ?? ["Sqlite", "PostgreSql"];
 
         [GlobalSetup]
         public void Setup()
@@ -87,9 +100,17 @@ namespace YesSql.Samples.Performance
 
                 configuration = new Configuration().UseSqLite(connectionString);
             }
-            else
+            else if (Provider == "PostgreSql")
             {
                 configuration = new Configuration().UsePostgreSql(PostgreSqlConnectionString);
+            }
+            else if (Provider == "MySql")
+            {
+                configuration = new Configuration().UseMySql(MySqlConnectionString);
+            }
+            else
+            {
+                configuration = new Configuration().UseSqlServer(SqlServerConnectionString);
             }
 
             configuration.SetTablePrefix("Opt");
