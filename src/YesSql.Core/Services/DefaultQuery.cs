@@ -4,6 +4,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.Common;
 using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
@@ -1416,35 +1417,53 @@ namespace YesSql.Services
                             logger.LogDebug(sql);
                         }
 
-                        // Stream the results without buffering them. The enumeration is driven manually so that
+                        // Stream the results without buffering them. The reader is driven manually so that
                         // a failure while reading from the database still cancels the session (releasing the
                         // transaction), as 'yield return' cannot be used inside a try/catch block.
-                        var enumerable = connection.QueryUnbufferedAsync<T>(sql, _query._queryState._sqlBuilder.Parameters, transaction);
+                        // Dapper's QueryUnbufferedAsync is not used as it always cancels the command once the results
+                        // are read, which opens a new connection on PostgreSQL and MySQL for each query.
+                        DbDataReader reader;
 
-                        await using var enumerator = enumerable.GetAsyncEnumerator(cancellationToken);
-
-                        while (true)
+                        try
                         {
-                            T item;
+                            reader = await connection.ExecuteReaderAsync(new CommandDefinition(sql, _query._queryState._sqlBuilder.Parameters, transaction, cancellationToken: cancellationToken), CommandBehavior.SingleResult | CommandBehavior.SequentialAccess);
+                        }
+                        catch
+                        {
+                            // Don't use CancelAsync as we don't want to trigger a thread safety check, it's done in the finally block
+                            await _query._session.CancelAsyncInternal();
 
-                            try
+                            throw;
+                        }
+
+                        await using (reader)
+                        {
+                            Func<DbDataReader, T> parser = null;
+
+                            while (true)
                             {
-                                if (!await enumerator.MoveNextAsync())
+                                T item;
+
+                                try
                                 {
-                                    break;
+                                    if (!await reader.ReadAsync(cancellationToken))
+                                    {
+                                        break;
+                                    }
+
+                                    parser ??= reader.GetRowParser<T>();
+                                    item = parser(reader);
+                                }
+                                catch
+                                {
+                                    // Don't use CancelAsync as we don't want to trigger a thread safety check, it's done in the finally block
+                                    await _query._session.CancelAsyncInternal();
+
+                                    throw;
                                 }
 
-                                item = enumerator.Current;
+                                yield return item;
                             }
-                            catch
-                            {
-                                // Don't use CancelAsync as we don't want to trigger a thread safety check, it's done in the finally block
-                                await _query._session.CancelAsyncInternal();
-
-                                throw;
-                            }
-
-                            yield return item;
                         }
                     }
                     else
@@ -1472,15 +1491,13 @@ namespace YesSql.Services
                             logger.LogDebug(sql);
                         }
 
-                        var documents = new List<Document>();
                         List<T> items;
 
                         try
                         {
-                            await foreach (var document in connection.QueryUnbufferedAsync<Document>(sql, _query._queryState._sqlBuilder.Parameters, transaction).WithCancellation(cancellationToken))
-                            {
-                                documents.Add(document);
-                            }
+                            // The documents are all loaded before being returned, so a buffered query is used. Dapper's
+                            // unbuffered queries cancel the command once they complete, which is expensive on most providers.
+                            var documents = (await connection.QueryAsync<Document>(new CommandDefinition(sql, _query._queryState._sqlBuilder.Parameters, transaction, flags: CommandFlags.Buffered, cancellationToken: cancellationToken))).AsList();
 
                             // The documents are materialized for this query only (they don't go through the shared
                             // query gating), so they don't need to be cloned.

@@ -5337,6 +5337,50 @@ namespace YesSql.Tests
             }
         }
 
+        [Fact]
+        public async Task ShouldNotCancelCommandsWhenListingResults()
+        {
+            _store.RegisterIndexes<PersonIndexProvider>();
+
+            await using (var session = _store.CreateSession())
+            {
+                await session.SaveAsync(new Person { Firstname = "Bill" });
+                await session.SaveAsync(new Person { Firstname = "Steve" });
+
+                await session.SaveChangesAsync();
+            }
+
+            var connectionFactory = _store.Configuration.ConnectionFactory;
+            var countingFactory = new CancelCountingConnectionFactory(connectionFactory);
+
+            try
+            {
+                _store.Configuration.ConnectionFactory = countingFactory;
+
+                await using (var session = _store.CreateSession())
+                {
+                    Assert.Equal(2, (await session.Query<Person, PersonByName>().ListAsync()).Count);
+                    Assert.Equal(new[] { "Bill", "Steve" }, (await session.QueryIndex<PersonByName>().OrderBy(x => x.SomeName).ListAsync()).Select(x => x.SomeName));
+
+                    var names = new List<string>();
+                    await foreach (var index in session.QueryIndex<PersonByName>().OrderBy(x => x.SomeName).ToAsyncEnumerable())
+                    {
+                        names.Add(index.SomeName);
+                    }
+
+                    Assert.Equal(new[] { "Bill", "Steve" }, names);
+                }
+
+                // Cancelling a command opens a new connection on some providers (e.g. PostgreSQL and MySQL),
+                // completed queries should not be cancelled.
+                Assert.Equal(0, countingFactory.Cancellations);
+            }
+            finally
+            {
+                _store.Configuration.ConnectionFactory = connectionFactory;
+            }
+        }
+
         private sealed class CountingContentSerializer : IContentSerializer
         {
             private readonly IContentSerializer _serializer;
