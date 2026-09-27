@@ -40,6 +40,8 @@ namespace YesSql
 
         private readonly WorkDispatcher<WorkerQueryKey> _dispatcher = new();
 
+        private readonly ConcurrentDictionary<(string Collection, string TablePrefix), DocumentTableSql> _documentTableSql = new();
+
         internal const int SmallBufferSize = 128;
         internal const int MediumBufferSize = 512;
         internal const int LargeBufferSize = 1024;
@@ -90,6 +92,7 @@ namespace YesSql
             IndexCommand.ResetQueryCache();
             DocumentCommand.ResetQueryCache();
             DeleteMapIndexCommand.ResetQueryCache();
+            _documentTableSql.Clear();
             ValidateConfiguration();
 
             TypeNames = new TypeService();
@@ -267,6 +270,22 @@ namespace YesSql
         {
             var contextType = typeof(DescribeContext<>).MakeGenericType(type);
             return Expression.Lambda<Func<IDescriptor>>(Expression.New(contextType)).Compile();
+        }
+
+        /// <summary>
+        /// Returns the SQL fragments referencing the document table of a collection.
+        /// </summary>
+        internal DocumentTableSql GetDocumentTableSql(string collection, string tablePrefix, ISqlBuilder builder)
+        {
+            // The table prefix is part of the key as the fragments are built with the builder of a session
+            var key = (collection ?? string.Empty, tablePrefix ?? string.Empty);
+
+            if (!_documentTableSql.TryGetValue(key, out var sql))
+            {
+                _documentTableSql[key] = sql = new DocumentTableSql(builder, Dialect, Configuration.TableNameConvention.GetDocumentTable(collection), Configuration.Schema);
+            }
+
+            return sql;
         }
 
         public Task<long> GetNextIdAsync(string collection, CancellationToken cancellationToken = default)

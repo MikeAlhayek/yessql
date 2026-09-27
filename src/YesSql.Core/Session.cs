@@ -33,6 +33,8 @@ namespace YesSql
         protected List<IIndexProvider> _indexes;
 
         protected string _tablePrefix;
+
+        internal string TablePrefix => _tablePrefix;
         private readonly ISqlDialect _dialect;
         private readonly ILogger _logger;
         private readonly bool _withTracking;
