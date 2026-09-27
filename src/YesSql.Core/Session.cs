@@ -93,13 +93,14 @@ namespace YesSql
             CheckDisposed();
 
             // already being saved or updated or tracked?
-            if (state.Saved.Contains(entity) || state.Updated.Contains(entity))
+            // The fields are used so that empty collections are not created
+            if (state._saved?.Contains(entity) == true || state._updated?.Contains(entity) == true)
             {
                 return;
             }
 
             // remove from tracked entities if explicitly saved
-            state.Tracked.Remove(entity);
+            state._tracked?.Remove(entity);
 
             // is it a new object?
             if (state.IdentityMap.TryGetDocumentId(entity, out var id))
@@ -787,33 +788,46 @@ namespace YesSql
                     var state = collectionState.Value;
                     var collection = collectionState.Key;
 
-                    foreach (var obj in state.Tracked)
+                    // The fields are used so that empty collections are not created
+                    if (state._tracked != null)
                     {
-                        if (!state.Deleted.Contains(obj))
+                        foreach (var obj in state._tracked)
                         {
-                            await UpdateEntityAsync(obj, true, collection, cancellationToken);
+                            if (state._deleted?.Contains(obj) != true)
+                            {
+                                await UpdateEntityAsync(obj, true, collection, cancellationToken);
+                            }
                         }
                     }
 
                     // saving all updated entities
-                    foreach (var obj in state.Updated)
+                    if (state._updated != null)
                     {
-                        if (!state.Deleted.Contains(obj))
+                        foreach (var obj in state._updated)
                         {
-                            await UpdateEntityAsync(obj, false, collection, cancellationToken);
+                            if (state._deleted?.Contains(obj) != true)
+                            {
+                                await UpdateEntityAsync(obj, false, collection, cancellationToken);
+                            }
                         }
                     }
 
                     // saving all pending entities
-                    foreach (var obj in state.Saved)
+                    if (state._saved != null)
                     {
-                        await SaveEntityAsync(obj, collection, cancellationToken);
+                        foreach (var obj in state._saved)
+                        {
+                            await SaveEntityAsync(obj, collection, cancellationToken);
+                        }
                     }
 
                     // deleting all pending entities
-                    foreach (var obj in state.Deleted)
+                    if (state._deleted != null)
                     {
-                        await DeleteEntityAsync(obj, collection, cancellationToken);
+                        foreach (var obj in state._deleted)
+                        {
+                            await DeleteEntityAsync(obj, collection, cancellationToken);
+                        }
                     }
                 }
 
@@ -845,20 +859,20 @@ namespace YesSql
                 {
                     // Track all saved and updated entities in case they are modified before
                     // CommitAsync is called
-                    foreach (var saved in state.Saved)
+                    if (state._saved?.Count > 0)
                     {
-                        state.Tracked.Add(saved);
+                        state.Tracked.UnionWith(state._saved);
+                        state._saved.Clear();
                     }
 
-                    foreach (var updated in state.Updated)
+                    if (state._updated?.Count > 0)
                     {
-                        state.Tracked.Add(updated);
+                        state.Tracked.UnionWith(state._updated);
+                        state._updated.Clear();
                     }
 
-                    state.Saved.Clear();
-                    state.Updated.Clear();
-                    state.Deleted.Clear();
-                    state.Maps.Clear();
+                    state._deleted?.Clear();
+                    state._maps?.Clear();
                 }
 
                 _commands?.Clear();
@@ -1165,12 +1179,11 @@ namespace YesSql
         {
             foreach (var state in _collectionStates.Values)
             {
-                if (
-                    state.Saved.Count +
-                    state.Updated.Count +
-                    state.Tracked.Count +
-                    state.Deleted.Count > 0
-                    )
+                // Use the fields as the properties would create the collections
+                if (state._saved?.Count > 0 ||
+                    state._updated?.Count > 0 ||
+                    state._tracked?.Count > 0 ||
+                    state._deleted?.Count > 0)
                 {
                     return true;
                 }
