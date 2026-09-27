@@ -38,7 +38,7 @@ namespace YesSql
 
         internal readonly ConcurrentDictionary<long, QueryState> CompiledQueries = new();
 
-        private readonly WorkDispatcher<WorkerQueryKey, object> _dispatcher = new();
+        private readonly WorkDispatcher<WorkerQueryKey> _dispatcher = new();
 
         internal const int SmallBufferSize = 128;
         internal const int MediumBufferSize = 512;
@@ -305,12 +305,9 @@ namespace YesSql
             return ProduceAwaitedAsync(key, work, state);
         }
 
-        internal async Task<T> ProduceAwaitedAsync<T, TState>(WorkerQueryKey key, Func<WorkerQueryKey, TState,  Task<T>> work, TState state)
+        internal Task<T> ProduceAwaitedAsync<T, TState>(WorkerQueryKey key, Func<WorkerQueryKey, TState, Task<T>> work, TState state)
         {
-            // The work and its state are passed as the dispatcher state so the callback doesn't capture them in a closure.
-            var content = await _dispatcher.ScheduleAsync(key, (work, state), static async (key, s) => await s.work(key, s.state)); // TODO cancellation token into dispatcher?
-
-            return (T)content;
+            return _dispatcher.ScheduleAsync(key, state, work); // TODO cancellation token into dispatcher?
         }
     }
 }
